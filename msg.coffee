@@ -55,7 +55,7 @@ class ClientChannels
       0
 
 plur = (count) ->
-  if count == 1 then 's' else ''
+  if count == 1 then '' else 's'
 
 # Subscribe function
 subscribe = (redis, channel) ->
