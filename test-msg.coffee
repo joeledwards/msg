@@ -13,7 +13,7 @@ now = -> moment().valueOf()
 ws = new WebSocket('ws://localhost:8888')
 
 initialDelay = 2000
-messageDelay = 50
+messageDelay = 1
 remaining = 200
 
 counts = {}
@@ -63,6 +63,7 @@ ws.on 'message', (json) ->
 
     if remaining < 1 and received >= sent
       summarize()
+      ws.close()
   catch error
     console.error "Error parsing message: #{error}\n#{error.stack}"
 
@@ -117,4 +118,7 @@ ws.on 'open', ->
   .then ->
     watch.start()
     sendMsg()
+
+ws.on 'close', ->
+  console.log "Closed."
 

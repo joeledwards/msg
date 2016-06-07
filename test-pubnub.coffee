@@ -13,13 +13,13 @@ durations = require 'durations'
 now = -> moment().valueOf()
 
 config =
-  ssl: true
+  ssl: false
   publish_key: pubKey
   subscribe_key: subKey
 nub = pubnub config
 
 initialDelay = 2000
-messageDelay = 50
+messageDelay = 1
 remaining = 200
 
 counts = {}
@@ -69,6 +69,8 @@ nub.subscribe
 
     if remaining < 1 and received >= sent
       summarize()
+      nub.unsubscribe
+        channel: 'messages'
 
 # recursive message delivery function
 sendMsg = ->
