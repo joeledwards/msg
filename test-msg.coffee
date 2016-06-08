@@ -16,7 +16,7 @@ now = -> moment().valueOf()
 ws = new WebSocket('ws://52.39.3.158:8888')
 
 initialDelay = 2000
-messageDelay = 10
+messageDelay = 1
 remaining = 200
 
 counts = {}
@@ -106,7 +106,7 @@ sendMsg = ->
         msg.error = true
         sendMsg()
 
-# connect after 2 sec. to give the subscription some time to "take"
+# start sending messages as soon as the WebSocket is established
 ws.on 'open', ->
   try
     # Subscribe to the channel
@@ -117,10 +117,8 @@ ws.on 'open', ->
   catch error
     console.error "Error subscribing to channel: #{error}\n#{error.stack}"
 
-  Q.delay initialDelay
-  .then ->
-    watch.start()
-    sendMsg()
+  watch.start()
+  sendMsg()
 
 ws.on 'close', ->
   console.log "Closed."
