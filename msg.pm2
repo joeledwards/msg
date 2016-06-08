@@ -9,4 +9,4 @@ PID_FILE=$DATA_PATH/cogs-irc.pid
 
 mkdir -p $DATA_PATH
 pm2 delete $APP_NAME
-pm2 start $APP_PATH/bot.coffee --name $APP_NAME -o $INFO_LOG -e $ERROR_LOG -p $PID_FILE
+pm2 start $APP_PATH/msg.coffee --name $APP_NAME -o $INFO_LOG -e $ERROR_LOG -p $PID_FILE
