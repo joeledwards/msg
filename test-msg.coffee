@@ -10,10 +10,11 @@ WebSocket = require 'ws'
 
 now = -> moment().valueOf()
 
-ws = new WebSocket('ws://localhost:8888')
+#ws = new WebSocket('ws://localhost:8888')
+ws = new WebSocket('ws://52.39.3.158:8888')
 
 initialDelay = 2000
-messageDelay = 1
+messageDelay = 10
 remaining = 200
 
 counts = {}

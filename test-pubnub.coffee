@@ -19,7 +19,7 @@ config =
 nub = pubnub config
 
 initialDelay = 2000
-messageDelay = 1
+messageDelay = 10
 remaining = 200
 
 counts = {}
