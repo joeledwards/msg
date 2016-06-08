@@ -1,0 +1,12 @@
+#!/bin/bash
+APP_NAME="msg"
+APP_PATH=`pwd`
+DATA_PATH=$HOME/.msg
+
+INFO_LOG=$DATA_PATH/info.log
+ERROR_LOG=$DATA_PATH/error.log
+PID_FILE=$DATA_PATH/cogs-irc.pid
+
+mkdir -p $DATA_PATH
+pm2 delete $APP_NAME
+pm2 start $APP_PATH/bot.coffee --name $APP_NAME -o $INFO_LOG -e $ERROR_LOG -p $PID_FILE

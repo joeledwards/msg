@@ -1,3 +1,5 @@
+#!/usr/bin/env coffee
+
 _ = require 'lodash'
 ws = require 'ws'
 uuid = require 'uuid'
