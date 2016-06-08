@@ -1,3 +1,5 @@
+#!/usr/bin/env coffee
+
 require 'log-a-log'
 
 _ = require 'lodash'
