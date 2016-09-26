@@ -62,7 +62,7 @@ ws.on 'message', (json) ->
     msg.timing.delivery = msg.timing.published - msg.timing.sent
     msg.timing.broker = msg.timing.received - msg.timing.published
     msg.timing.total = msg.timing.received - msg.timing.sent
-    console.log "Message '#{id}' (#{received} of #{sent}) received in #{msg.timing.total} ms (Delivery #{msg.timing.delivery}, Server #{msg.timing.broker} ms): #{json}"
+    console.log "Message '#{id}' (#{received} of #{sent}) received in #{msg.timing.total} ms (Delivery #{msg.timing.delivery} ms, Server #{msg.timing.broker} ms): #{json}"
 
     if remaining < 1 and received >= sent
       summarize()

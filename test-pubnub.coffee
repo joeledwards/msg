@@ -22,7 +22,7 @@ nub = pubnub config
 
 initialDelay = 2000
 messageDelay = 1
-remaining = 200
+remaining = 201
 
 counts = {}
 messages = {}
@@ -43,6 +43,8 @@ summarize = ->
   mean = _.sum(totals.map(({total}) -> total).value()) / totals.size()
 
   console.log "shortest=#{shortest} longest=#{longest} mean=#{mean} : took #{watch}"
+
+  _(messages).each (message) -> console.log "#{moment(message.timing.created).toISOString()},#{message.timing.total}"
 
 # Subscribe to the channel
 nub.subscribe
@@ -67,7 +69,7 @@ nub.subscribe
     msg.timing.delivery = msg.timing.published - msg.timing.sent
     msg.timing.broker = msg.timing.received - msg.timing.published
     msg.timing.total = msg.timing.received - msg.timing.sent
-    console.log "Message '#{id}' (#{received} of #{sent}) received in #{msg.timing.total} ms (Delivery #{msg.timing.delivery}, PubNub #{msg.timing.broker} ms): #{json}"
+    console.log "Message '#{id}' (#{received} of #{sent}) received in #{msg.timing.total} ms (Delivery #{msg.timing.delivery} ms, PubNub #{msg.timing.broker} ms): #{json}"
 
     if remaining < 1 and received >= sent
       summarize()

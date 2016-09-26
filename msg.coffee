@@ -1,5 +1,7 @@
 #!/usr/bin/env coffee
 
+require 'log-a-log'
+
 _ = require 'lodash'
 ws = require 'ws'
 uuid = require 'uuid'
