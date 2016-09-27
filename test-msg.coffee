@@ -17,7 +17,7 @@ ws = new WebSocket('ws://52.39.3.158:8888')
 
 initialDelay = 2000
 messageDelay = 1
-messageCount = 1000
+messageCount = 100
 remaining = messageCount
 
 counts = {}
@@ -37,6 +37,8 @@ summarize = ->
   longest = totals.last().total
   shortest = totals.first().total
   mean = _.sum(totals.map(({total}) -> total).value()) / totals.size()
+  
+  #_(messages).each (message) -> console.log "#{moment(message.timing.created).toISOString()},#{message.timing.total}"
 
   console.log "messages=#{messageCount} shortest=#{shortest} longest=#{longest} mean=#{mean} : took #{watch}"
 

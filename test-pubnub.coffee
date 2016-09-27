@@ -22,7 +22,7 @@ nub = pubnub config
 
 initialDelay = 2000
 messageDelay = 1
-messageCount = 1000
+messageCount = 100
 remaining = messageCount + 1
 
 counts = {}
@@ -43,9 +43,9 @@ summarize = ->
   shortest = totals.first().total
   mean = _.sum(totals.map(({total}) -> total).value()) / totals.size()
 
-  console.log "messages=#{messageCount} shortest=#{shortest} longest=#{longest} mean=#{mean} : took #{watch}"
+  #_(messages).each (message) -> console.log "#{moment(message.timing.created).toISOString()},#{message.timing.total}"
 
-  _(messages).each (message) -> console.log "#{moment(message.timing.created).toISOString()},#{message.timing.total}"
+  console.log "messages=#{messageCount} shortest=#{shortest} longest=#{longest} mean=#{mean} : took #{watch}"
 
 # Subscribe to the channel
 nub.subscribe
