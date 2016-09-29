@@ -93,7 +93,13 @@ sub.on 'message', (channel, message) ->
       channel: channel
       message: message
     json = JSON.stringify record
-    socket.send json
+    try
+      socket.send json
+    catch error
+      console.error """Error forwarding message:
+        channel: #{channel}
+        message: #{message}
+        """, error
 
 # Server connection handler
 server.on 'connection', (sock) ->

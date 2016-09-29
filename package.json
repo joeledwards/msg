@@ -10,6 +10,7 @@
   "author": "Joel Edwards <joel@ed-craft.com",
   "license": "ISC",
   "dependencies": {
+    "bluebird": "^3.4.6",
     "coffee-script": "^1.10.0",
     "cogs-sdk": "^3.0.3",
     "durations": "^2.1.0",
@@ -17,6 +18,7 @@
     "lodash": "^4.12.0",
     "log-a-log": "^1.2.1",
     "moment": "^2.13.0",
+    "nsqjs": "^0.7.12",
     "pubnub": "^3.14.5",
     "q": "^1.4.1",
     "uuid": "^2.0.2",
