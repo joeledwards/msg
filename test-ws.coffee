@@ -15,11 +15,11 @@ EventEmitter = require 'events'
 #uri = 'ws://52.39.3.158:8888'
 uri = 'ws://localhost:8888'
 runDuration = 20000
-channelCount = 10
+channelCount = 2
 pubWorkers = 2
-subWorkers = 4
-subscriberCount = 40
-publishDelay = 10
+subWorkers = 2
+subscriberCount = 2
+publishDelay = 0
 
 # Run an individual publisher
 runPubWorker = ({id, channelGroup}) ->

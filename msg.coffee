@@ -8,7 +8,7 @@ uuid = require 'uuid'
 Redis = require 'ioredis'
 EventEmitter = require 'events'
 
-class ClientChannels
+class ClientChannelRegistry
   constructor: ->
     @clients = {}
     @channels = {}
@@ -104,11 +104,12 @@ class MemoryCore extends EventEmitter
     console.log "Pretending to unsubscribe from channel #{channel}"
 
   publish: (channel, message) ->
-    @emit 'message', channel, message
+    setImmediate ->
+      @emit 'message', channel, message
 
 core = new RedisCore()
 #core = new MemoryCore()
-context = new ClientChannels()
+context = new ClientChannelRegistry()
 server = new ws.Server({port: 8888})
 
 core.on 'message', (channel, message) ->
