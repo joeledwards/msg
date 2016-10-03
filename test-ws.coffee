@@ -13,13 +13,14 @@ WebSocket = require 'ws'
 EventEmitter = require 'events'
 
 #uri = 'ws://52.39.3.158:8888'
-uri = 'ws://localhost:8888'
+#uri = 'ws://localhost:8888'
+uri = 'ws://172.17.0.4:8080/pubsub'
 runDuration = 20000
-channelCount = 2
+channelCount = 200
 pubWorkers = 2
 subWorkers = 2
-subscriberCount = 2
-publishDelay = 0
+subscriberCount = 20
+publishDelay = 100
 
 # Run an individual publisher
 runPubWorker = ({id, channelGroup}) ->
@@ -296,8 +297,15 @@ runMaster = ->
               .map ({published}) -> published
               .reduce (v, acc) -> v + acc
 
-            console.log "  total published: #{published}"
-            console.log "   total received: #{received}"
+            console.log "   run duration (ms): #{runDuration}"
+            console.log "  publish delay (ms): #{publishDelay}"
+            console.log "       channel count: #{channelCount}"
+            console.log "         pub workers: #{pubWorkers}"
+            console.log "         sub workers: #{subWorkers}"
+            console.log "         subscribers: #{subscriberCount}"
+            console.log " -------------------------------"
+            console.log "     total published: #{published}"
+            console.log "      total received: #{received}"
 
             process.exit 0
 
