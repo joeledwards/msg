@@ -175,8 +175,8 @@ class MemoryCore extends EventEmitter
 config = JSON.parse(fs.readFileSync('config.json', 'utf-8'))
 
 #core = new MqttCore(config.mqtt.servers)
-core = new RedisCore(config.redis.server)
-#core = new MemoryCore()
+#core = new RedisCore(config.redis.server)
+core = new MemoryCore()
 context = new ClientChannelRegistry()
 server = new ws.Server({port: 8888})
 
