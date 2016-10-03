@@ -3,8 +3,9 @@
 require 'log-a-log'
 
 _ = require 'lodash'
+fs = require 'fs'
 ws = require 'ws'
-mqtt = rqeuire 'mqtt'
+mqtt = require 'mqtt'
 uuid = require 'uuid'
 Redis = require 'ioredis'
 EventEmitter = require 'events'
@@ -66,10 +67,10 @@ plur = (stem, count) ->
 
 # Core based on broker which speaks MQTT.
 class MqttCore extends EventEmitter
-  constructor: ->
+  constructor: (servers) ->
     console.log "Establishing MQTT connection"
 
-    @client = mqtt.connect('mqtt://localhost');
+    @client = mqtt.connect({servers: servers})
 
     @client.on 'message', (topic, message) =>
       @emit 'message', topic, message
@@ -116,11 +117,11 @@ class MqttCore extends EventEmitter
 
 # Core based on Redis, designed for a distributed cluster of msg servers.
 class RedisCore extends EventEmitter
-  constructor: ->
+  constructor: (server) ->
     console.log "Establishing Redis connections"
 
-    @sub = new Redis({port: 6379, host: 'localhost'})
-    @pub = new Redis({port: 6379, host: 'localhost'})
+    @sub = new Redis(server)
+    @pub = new Redis(server)
 
     @sub.on 'message', (channel, message) =>
       @emit 'message', channel, message
@@ -165,14 +166,16 @@ class MemoryCore extends EventEmitter
     console.log "Pretending to unsubscribe from channel #{channel}"
 
   publish: (channel, message) ->
-    setImmediate ->
+    setImmediate =>
       @emit 'message', channel, message
 
   close: ->
     console.log "Closing MemoryCore"
 
-#core = new MqttCore()
-core = new RedisCore()
+config = JSON.parse(fs.readFileSync('config.json', 'utf-8'))
+
+#core = new MqttCore(config.mqtt.servers)
+core = new RedisCore(config.redis.server)
 #core = new MemoryCore()
 context = new ClientChannelRegistry()
 server = new ws.Server({port: 8888})
