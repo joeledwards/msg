@@ -20,7 +20,7 @@ channelCount = 200
 pubWorkers = 2
 subWorkers = 2
 subscriberCount = 20
-publishDelay = 100
+publishDelay = 10
 
 # Run an individual publisher
 runPubWorker = ({id, channelGroup}) ->
@@ -57,8 +57,8 @@ runPubWorker = ({id, channelGroup}) ->
     ws = new WebSocket(uri)
 
     ws.once 'open', ->
-      active += 1
       console.log "[#{process.pid}] Publisher #{id} to channel '#{channel}' connected (#{active} of #{totalWs})"
+      active += 1
 
       if active == totalWs
         process.nextTick -> worker.emit('all-ws-connected')
@@ -86,12 +86,12 @@ runPubWorker = ({id, channelGroup}) ->
         sendMessage()
 
     ws.once 'close', ->
+      console.log "[#{process.pid}] Publisher #{id} to channel '#{channel}' disconnected (#{active} of #{totalWs})"
       closed = true
       active -= 1
-      console.log "[#{process.pid}] Publisher #{id} to channel '#{channel}' disconnected (#{active} of #{totalWs})"
-      finalSummary()
 
       if active < 1
+        finalSummary()
         summary.published = published
         process.nextTick -> worker.emit('all-ws-disconnected')
         process.nextTick -> worker.emit('worker-summary', summary)
@@ -153,8 +153,8 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
       ws = new WebSocket(uri)
 
       ws.once 'open', ->
-        active += 1
         console.log "[#{process.pid}] Subscriber #{i} to channel '#{channel}' connected (#{active} of #{totalWs})"
+        active += 1
 
         subscription =
           action: 'subscribe'
@@ -170,11 +170,11 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
         timedSummary()
 
       ws.once 'close', ->
-        active -= 1
         console.log "[#{process.pid}] Subscriber #{i} to channel '#{channel}' disconnected (#{active} of #{totalWs})"
-        finalSummary()
+        active -= 1
 
         if active < 1
+          finalSummary()
           summary.received = received
           process.nextTick -> worker.emit('all-ws-disconnected')
           process.nextTick -> worker.emit('worker-summary', summary)
