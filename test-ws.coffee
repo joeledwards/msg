@@ -14,13 +14,19 @@ EventEmitter = require 'events'
 
 #uri = 'ws://52.39.3.158:8888'
 #uri = 'ws://localhost:8888'
-uri = 'ws://172.17.0.4:8080/pubsub'
+
+uris = [
+  'ws://172.17.0.4:8080/pubsub'
+  'ws://172.17.0.4:8080/pubsub'
+]
+uriCount = uris.length
+
 runDuration = 20000
 channelCount = 200
 pubWorkers = 2
 subWorkers = 2
 subscriberCount = 20
-publishDelay = 10
+publishDelay = 1
 
 # Run an individual publisher
 runPubWorker = ({id, channelGroup}) ->
@@ -50,10 +56,14 @@ runPubWorker = ({id, channelGroup}) ->
   finalSummary = -> summarize() if active < 1
 
   totalWs = channelGroup.length
+  pubCounter = 0
 
   # Set up a WebSocket for each channel
   channelGroup.forEach (channel) ->
     closed = false
+    pubCounter += 1
+    uriOffset = pubCounter % uriCount
+    uri = uris[uriOffset]
     ws = new WebSocket(uri)
 
     ws.once 'open', ->
@@ -148,8 +158,12 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
 
   totalWs = channels.length * subscriberGroup.length
 
+  subCounter = 0
   channels.forEach (channel) ->
     subscriberGroup.forEach (i) ->
+      subCounter += 1
+      uriOffset = subCounter % uriCount
+      uri = uris[uriOffset]
       ws = new WebSocket(uri)
 
       ws.once 'open', ->
