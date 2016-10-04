@@ -23,8 +23,9 @@ class ClientChannelRegistry
     @channels[channel] ? {}
 
   addClient: (clientId, socket) ->
-    if @clients[clientId]?
-      @clients[clientId].socket = socket
+    client = @clients[clientId]
+    if client?
+      client.socket = socket
     else
       @clients[clientId] =
         socket: socket
@@ -34,8 +35,9 @@ class ClientChannelRegistry
     emptyChannels = []
     client = @clients[clientId]
     if client?
-      if client.channels?
-        _(client.channels).keys()
+      channels = client.channels
+      if channels?
+        _(channels).keys()
         .each (channel) =>
           if @unsubscribe(clientId, channel) < 1
             emptyChannels.push channel
@@ -45,17 +47,21 @@ class ClientChannelRegistry
   subscribe: (clientId, channel) ->
     client = @clients[clientId]
     client.channels[channel] = 1
-    if not @channels[channel]?
-      @channels[channel] = {}
-    @channels[channel][clientId] = client.socket
-    _(@channels[channel]).size()
+    channelObj = @channels[channel]
+    if not channelObj?
+      channelObj = {}
+      @channels[channel] = channelObj
+    channelObj[clientId] = client.socket
+    _(channelObj).size()
 
   unsubscribe: (clientId, channel) ->
-    if @clients[clientId]?
-      delete @clients[clientId].channels[channel]
-    if @channels[channel]?
-      delete @channels[channel][clientId]
-      clientCount = _(@channels[channel]).size()
+    client = @clients[clientId]
+    if client?
+      delete client.channels[channel]
+    channelObj = @channels[channel]
+    if channelObj?
+      delete channelObj[clientId]
+      clientCount = _(channelObj).size()
       if clientCount < 1
         delete @channels[channel]
       clientCount
@@ -73,7 +79,7 @@ class MqttCore extends EventEmitter
     @client = mqtt.connect({servers: servers})
 
     @client.on 'message', (topic, message) =>
-      @emit 'message', topic, message
+      @emit 'message', topic, JSON.parse(message)
     
     @client.on 'connect', =>
       console.log "MQTT client connected"
@@ -109,7 +115,7 @@ class MqttCore extends EventEmitter
         console.log "Successfully unsubscribed client from channel #{channel}"
 
   publish: (channel, message) ->
-    @client.publish channel, message
+    @client.publish channel, JSON.stringify(message)
 
   close: ->
     console.log "Closing MqttCore"
@@ -175,8 +181,8 @@ class MemoryCore extends EventEmitter
 config = JSON.parse(fs.readFileSync('config.json', 'utf-8'))
 
 #core = new MqttCore(config.mqtt.servers)
-core = new RedisCore(config.redis.server)
-#core = new MemoryCore()
+#core = new RedisCore(config.redis.server)
+core = new MemoryCore()
 context = new ClientChannelRegistry()
 server = new ws.Server({port: 8888})
 
