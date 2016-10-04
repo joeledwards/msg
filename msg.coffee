@@ -123,11 +123,11 @@ class MqttCore extends EventEmitter
 
 # Core based on Redis, designed for a distributed cluster of msg servers.
 class RedisCore extends EventEmitter
-  constructor: (server) ->
+  constructor: (servers) ->
     console.log "Establishing Redis connections"
 
-    @sub = new Redis(server)
-    @pub = new Redis(server)
+    @sub = new Redis.Cluster(servers)
+    @pub = new Redis.Cluster(servers)
 
     @sub.on 'message', (channel, message) =>
       @emit 'message', channel, message
@@ -181,8 +181,8 @@ class MemoryCore extends EventEmitter
 config = JSON.parse(fs.readFileSync('config.json', 'utf-8'))
 
 #core = new MqttCore(config.mqtt.servers)
-#core = new RedisCore(config.redis.server)
-core = new MemoryCore()
+core = new RedisCore(config.redis.servers)
+#core = new MemoryCore()
 context = new ClientChannelRegistry()
 server = new ws.Server({port: 8888})
 
@@ -201,7 +201,7 @@ core.on 'message', (channel, message) ->
     catch error
       console.error """Error forwarding message:
         channel: #{channel}
-        message: #{message}
+        message: #{JSON.stringify(message)}
         """, error
 
 # Server connection handler

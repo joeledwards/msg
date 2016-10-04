@@ -15,9 +15,15 @@ EventEmitter = require 'events'
 #uri = 'ws://52.39.3.158:8888'
 #uri = 'ws://localhost:8888'
 
+#uris = [
+#  'ws://172.17.0.4:8080/pubsub'
+#  'ws://172.17.0.4:8080/pubsub'
+#]
 uris = [
-  'ws://172.17.0.4:8080/pubsub'
-  'ws://172.17.0.4:8080/pubsub'
+  'ws://172.18.0.3:8888'
+  'ws://172.18.0.4:8888'
+  'ws://172.18.0.5:8888'
+  'ws://172.18.0.6:8888'
 ]
 uriCount = uris.length
 
@@ -27,6 +33,8 @@ pubWorkers = 2
 subWorkers = 2
 subscriberCount = 20
 publishDelay = 1
+
+allStop = false
 
 # Run an individual publisher
 runPubWorker = ({id, channelGroup}) ->
@@ -75,7 +83,7 @@ runPubWorker = ({id, channelGroup}) ->
 
       sendMessage = () ->
         try
-          if not closed
+          if not closed and not allStop
             record =
               action: 'publish'
               channel: channel
@@ -344,7 +352,7 @@ runWorker = ->
         runSub = () -> runSubWorker job
         runPub = () -> runPubWorker job
         worker.events = if job.type == 'subscriber' then runSub() else runPub()
-        
+
         worker.events.once 'all-ws-connected', -> 
           process.send
             action: 'all-ws-connected'

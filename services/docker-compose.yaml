@@ -1,0 +1,30 @@
+version: "2"
+services:
+  redis:
+    hostname: msg-redis
+    container_name: msg-redis-cluster
+    image: grokzen/redis-cluster
+    ports:
+      - 7000
+      - 7001
+      - 7002
+      - 7003
+      - 7004
+      - 7005
+      - 7006
+      - 7007
+  node:
+    depends_on:
+      - redis
+    image: node
+    volumes:
+      - ..:/opt/msg
+    command: /bin/bash -c "cd /opt/msg; /opt/msg/node_modules/.bin/coffee /opt/msg/msg.coffee"
+    links:
+      - redis
+    ports:
+      - 8888
+networks:
+  default:
+    external:
+      name: default_network
