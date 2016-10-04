@@ -12,19 +12,28 @@ durations = require 'durations'
 WebSocket = require 'ws'
 EventEmitter = require 'events'
 
-#uri = 'ws://52.39.3.158:8888'
-#uri = 'ws://localhost:8888'
+# Small Server
+#uris = ['ws://52.39.3.158:8888']
 
+# Stand-alone test instance
+#uris = ['ws://localhost:8888']
+
+# Elixir Servers
 #uris = [
-#  'ws://172.17.0.4:8080/pubsub'
-#  'ws://172.17.0.4:8080/pubsub'
+#  'ws://172.18.0.7:8080/pubsub'
+#  'ws://172.18.0.8:8080/pubsub'
+#  'ws://172.18.0.9:8080/pubsub'
+#  'ws://172.18.0.10:8080/pubsub'
 #]
+
+# Node.js Servers
 uris = [
   'ws://172.18.0.3:8888'
   'ws://172.18.0.4:8888'
   'ws://172.18.0.5:8888'
   'ws://172.18.0.6:8888'
 ]
+
 uriCount = uris.length
 
 runDuration = 20000
