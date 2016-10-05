@@ -71,15 +71,31 @@ class ClientChannelRegistry
 plur = (stem, count) ->
   if count == 1 then "#{count} #{stem}" else "#{count} #{stem}s"
 
+class BaseCore extends EventEmitter
+  constructor: ->
+    @paused = false
+
+  pause: ->
+    @paused = true
+
+  resume: ->
+    @paused = false
+
+  isPaused: ->
+    @paused
+
 # Core based on broker which speaks MQTT.
-class MqttCore extends EventEmitter
+class MqttCore extends BaseCore
   constructor: (servers) ->
+    super()
+
     console.log "Establishing MQTT connection"
 
     @client = mqtt.connect({servers: servers})
 
     @client.on 'message', (topic, message) =>
-      @emit 'message', topic, JSON.parse(message)
+      if not @paused
+        @emit 'message', topic, JSON.parse(message)
     
     @client.on 'connect', =>
       console.log "MQTT client connected"
@@ -122,15 +138,18 @@ class MqttCore extends EventEmitter
     @client.end()
 
 # Core based on Redis, designed for a distributed cluster of msg servers.
-class RedisCore extends EventEmitter
+class RedisCore extends BaseCore
   constructor: (servers) ->
+    super()
+
     console.log "Establishing Redis connections"
 
     @sub = new Redis.Cluster(servers)
     @pub = new Redis.Cluster(servers)
 
     @sub.on 'message', (channel, message) =>
-      @emit 'message', channel, message
+      if not @paused
+        @emit 'message', channel, message
 
     setImmediate => @emit 'connected'
 
@@ -159,8 +178,10 @@ class RedisCore extends EventEmitter
     @pub.close()
 
 # Core based on memory, designed for a stand-alone msg server.
-class MemoryCore extends EventEmitter
+class MemoryCore extends BaseCore
   constructor: ->
+    super()
+
     console.log "Nothing to setup in MemoryCore"
 
     setImmediate => @emit 'connected'
@@ -172,16 +193,17 @@ class MemoryCore extends EventEmitter
     console.log "Pretending to unsubscribe from channel #{channel}"
 
   publish: (channel, message) ->
-    setImmediate =>
-      @emit 'message', channel, message
+    if not @paused
+      setImmediate =>
+        @emit 'message', channel, message
 
   close: ->
     console.log "Closing MemoryCore"
 
 config = JSON.parse(fs.readFileSync('config.json', 'utf-8'))
 
-#core = new MqttCore(config.mqtt.servers)
 core = new RedisCore(config.redis.servers)
+#core = new MqttCore(config.mqtt.servers)
 #core = new MemoryCore()
 context = new ClientChannelRegistry()
 server = new ws.Server({port: 8888})
