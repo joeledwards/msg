@@ -28,10 +28,10 @@ EventEmitter = require 'events'
 
 # Node.js Servers
 uris = [
-  'ws://172.18.0.3:8888'
   'ws://172.18.0.4:8888'
   'ws://172.18.0.5:8888'
   'ws://172.18.0.6:8888'
+  'ws://172.18.0.7:8888'
 ]
 
 uriCount = uris.length
@@ -77,6 +77,7 @@ runPubWorker = ({id, channelGroup}) ->
 
   finalSummary = -> summarize() if active < 1
 
+  workerMessageCount = 0
   totalWs = channelGroup.length
   pubCounter = 0
 
@@ -90,10 +91,12 @@ runPubWorker = ({id, channelGroup}) ->
 
     channelSendCount = 0
     didConnect = false
+    channelWatch = durations.stopwatch()
 
     ws.once 'open', ->
       didConnect = true
       active += 1
+      channelWatch.start()
 
       console.log "[#{id}] channel '#{channel}' connected (#{active} of #{totalWs})"
 
@@ -114,11 +117,15 @@ runPubWorker = ({id, channelGroup}) ->
             workerSendCount += 1
             channelSendCount += 1
 
+            if workerSendCount >= workerMessageCount
+              console.log "[#{id}] All #{workerMessageCount} messages published in #{channelWatch}"
+
             timedSummary()
 
             setTimeout sendMessage, publishDelayMillis
           else
-            console.log "[#{id}] All #{messagesPerChannel} messages published to channel '#{channel}'"
+            console.log "[#{id}] All #{messagesPerChannel} messages published to channel '#{channel}' in #{channelWatch}"
+
             ws.close()
         catch error
           console.error "[#{id}] Error publishing message:", error
@@ -160,6 +167,8 @@ runPubWorker = ({id, channelGroup}) ->
     watch.start()
 #    setTimeout closeWebSockets, runDuration
 
+  workerMessageCount = pubCounter * messagesPerChannel
+
   worker
 
 # Run an individual subscriber
@@ -191,6 +200,7 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
   if active < 1
     finalSummary = -> summarize()
 
+  workerMessageCount = 0
   totalWs = channels.length * subscriberGroup.length
 
   subCounter = 0
@@ -203,31 +213,58 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
 
       channelRecvCount = 0
       didConnect = false
+      channelWatch = durations.stopwatch()
 
+      # The WebSocket is connected
       ws.once 'open', ->
-        didConnect = true
-        active += 1
-
-        console.log "[#{id}] Subscriber #{i} to channel '#{channel}' connected (#{active} of #{totalWs})"
-
-        subscription =
+        ws.send JSON.stringify({
           action: 'subscribe'
           channel: channel
-        ws.send JSON.stringify(subscription)
+        })
 
-        if active >= totalWs
-          process.nextTick -> worker.emit('all-ws-connected')
-
+      # Received a message from the WebSocket
       ws.on 'message', (message) ->
-        #console.log "Subscriber #{i} to channel '#{channel}' received message : #{message}"
-        workerRecvCount += 1
-        channelRecvCount += 1
+        record = JSON.parse message
 
-        if channelRecvCount >= messagesPerChannel
-          ws.close()
-        else
-          timedSummary()
+        switch record.action
+          when 'subscribe'
+            if record.result == 'success'
+              didConnect = true
+              active += 1
+              channelWatch.start()
 
+              console.log "[#{id}] Subscriber #{i} to channel '#{channel}' connected (#{active} of #{totalWs})"
+
+              if active >= totalWs
+                process.nextTick -> worker.emit('all-ws-connected')
+            else
+              console.log "[#{id}] Subscriber #{i} to channel '#{channel}' failed to subscribe"
+              ws.close()
+
+          when 'unsubscribe'
+            if record.result != 'success'
+              console.log "[#{id}] Subscriber #{i} to channel '#{channel}' failed to unsubscribe"
+
+            ws.close()
+
+          when 'message'
+            workerRecvCount += 1
+            channelRecvCount += 1
+
+            if workerRecvCount >= workerMessageCount
+              console.log "[#{id}] All #{workerMessageCount} messages consumed in #{channelWatch}"
+
+            if channelRecvCount >= messagesPerChannel
+              console.log "[#{id}] All #{messagesPerChannel} messages consumed from channel '#{channel}' in #{channelWatch}"
+
+              ws.send JSON.stringify({
+                action: 'unsubscribe'
+                channel: channel
+              })
+            else
+              timedSummary()
+
+      # The WebSocket has been closed
       ws.once 'close', ->
         if didConnect
           active -= 1
@@ -259,6 +296,8 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
   worker.once 'start', ->
     watch.start()
 #    setTimeout closeWebSockets, runDuration
+
+  workerMessageCount = subCounter * messagesPerChannel
 
   worker
 

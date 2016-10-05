@@ -3,6 +3,7 @@
 require 'log-a-log'
 
 _ = require 'lodash'
+P = require 'bluebird'
 fs = require 'fs'
 ws = require 'ws'
 mqtt = require 'mqtt'
@@ -16,54 +17,111 @@ class ClientChannelRegistry
     @clients = {}
     @channels = {}
 
-  getChannels: (clientId) ->
-    @clients[clientId] ? {}
+  markChannelSend: (channelKey) ->
+    channel = @channels[channelKey]
+    if channel?
+      channel.send += 1
 
-  getClients: (channel) ->
-    @channels[channel] ? {}
+  markChannelRecv: (channelKey) ->
+    channel = @channels[channelKey]
+    if channel?
+      channel.recv += 1
 
+  markClientSend: (clientId) ->
+    client = @clients[clientId]
+    if client?
+      client.send += 1
+
+  markClientRecv: (clientId) ->
+    client = @clients[clientId]
+    if client?
+      client.recv += 1
+
+  # Fetch all channels associated with a client
+  getClientChannels: (clientId) ->
+    client = @clients[clientId] ? {}
+    client.channels
+
+  # Fetch all clients associated with a channel
+  getChannelClients: (channelKey) ->
+    channel = @channels[channelKey] ? {}
+    channel.clients
+
+  # Add a client
   addClient: (clientId, socket) ->
     client = @clients[clientId]
+
     if client?
       client.socket = socket
     else
       @clients[clientId] =
         socket: socket
+        send: 0
+        recv: 0
         channels: {}
 
+  # Remove a client
   removeClient: (clientId) ->
     emptyChannels = []
     client = @clients[clientId]
+
     if client?
       channels = client.channels
+
       if channels?
-        _(channels).keys()
-        .each (channel) =>
-          if @unsubscribe(clientId, channel) < 1
-            emptyChannels.push channel
+        _(channels)
+        .keys()
+        .each (channelKey) =>
+          if @unsubscribe(clientId, channelKey) < 1
+            emptyChannels.push channelKey
+
+      console.log "Removing client #{clientId}; sent=#{client.send} received=#{client.recv}"
+
     delete @clients[clientId]
     emptyChannels
 
-  subscribe: (clientId, channel) ->
+  # Subscribe a client to a channel
+  subscribe: (clientId, channelKey) ->
     client = @clients[clientId]
-    client.channels[channel] = 1
-    channelObj = @channels[channel]
-    if not channelObj?
-      channelObj = {}
-      @channels[channel] = channelObj
-    channelObj[clientId] = client.socket
-    _(channelObj).size()
+    client.channels[channelKey] = 1
+    channel = @channels[channelKey]
 
-  unsubscribe: (clientId, channel) ->
+    if not channel?
+      channel =
+        send: 0
+        recv: 0
+        clients: {}
+      @channels[channelKey] = channel
+
+    channel.clients[clientId] = client.socket
+
+    _(channel.clients).size()
+
+  # Unsubscribe a client from a channel
+  unsubscribe: (clientId, channelKey) ->
     client = @clients[clientId]
+
     if client?
-      delete client.channels[channel]
-    channelObj = @channels[channel]
-    if channelObj?
-      delete channelObj[clientId]
-      clientCount = _(channelObj).size()
+      delete client.channels[channelKey]
+
+    channel = @channels[channelKey]
+
+    if channel?
+      delete channel.clients[clientId]
+      clientCount = _(channel.clients).size()
+
       if clientCount < 1
-        delete @channels[channel]
+        if channel.send > 0 and channel.recv > 0 and channel.send != channel.recv
+          console.log "============================================================================="
+          console.log "-----------------------------------------------------------------------------"
+          console.log "Removing channel #{channelKey}; sent=#{channel.send} received=#{channel.recv}"
+          console.log "-----------------------------------------------------------------------------"
+          console.log "============================================================================="
+        else
+          console.log "Removing channel #{channelKey}; sent=#{channel.send} received=#{channel.recv}"
+
+        delete @channels[channelKey]
+
       clientCount
     else
       0
@@ -114,21 +172,27 @@ class MqttCore extends BaseCore
       @emit 'close'
 
   subscribe: (channel) ->
-    console.log "subscribing to channel '#{channel}'"
-    @client.subscribe channel, (error, granted) ->
-      if error?
-        console.error "Error subscribing to channel '#{channel}':", error
-      else
-        count = _(granted).size()
-        console.log "#{plur 'subscription', count} for this client"
+    new P (resolve, reject) => 
+      console.log "subscribing to channel '#{channel}'"
+      @client.subscribe channel, (error, granted) ->
+        if error?
+          console.error "Error subscribing to channel '#{channel}':", error
+          reject error
+        else
+          count = _(granted).size()
+          console.log "#{plur 'subscription', count} for this client"
+          resolve()
 
   unsubscribe: (channel) ->
-    console.log "un-subscribing from channel '#{channel}'"
-    @client.unsubscribe channel, (error) ->
-      if error?
-        console.error "Error unsubscribing from channel '#{channel}':", error
-      else
-        console.log "Successfully unsubscribed client from channel #{channel}"
+    new P (resolve, reject) =>
+      console.log "un-subscribing from channel '#{channel}'"
+      @client.unsubscribe channel, (error) ->
+        if error?
+          console.error "Error unsubscribing from channel '#{channel}':", error
+          reject error
+        else
+          console.log "Successfully unsubscribed client from channel #{channel}"
+          resolve()
 
   publish: (channel, message) ->
     @client.publish channel, JSON.stringify(message)
@@ -139,13 +203,13 @@ class MqttCore extends BaseCore
 
 # Core based on Redis, designed for a distributed cluster of msg servers.
 class RedisCore extends BaseCore
-  constructor: (servers) ->
+  constructor: ({cluster, server, servers}) ->
     super()
 
     console.log "Establishing Redis connections"
 
-    @sub = new Redis.Cluster(servers)
-    @pub = new Redis.Cluster(servers)
+    @sub = if cluster then new Redis.Cluster(servers) else new Redis(server)
+    @pub = if cluster then new Redis.Cluster(servers) else new Redis(server)
 
     @sub.on 'message', (channel, message) =>
       if not @paused
@@ -154,20 +218,26 @@ class RedisCore extends BaseCore
     setImmediate => @emit 'connected'
 
   subscribe: (channel) ->
-    console.log "subscribing to channel '#{channel}'"
-    @sub.subscribe channel, (error, count) ->
-      if error?
-        console.error "Error subscribing to channel '#{channel}':", error
-      else
-        console.log "#{plur 'subscription', count} in Redis"
+    new P (resolve, reject) =>
+      console.log "subscribing to channel '#{channel}'"
+      @sub.subscribe channel, (error, count) ->
+        if error?
+          console.error "Error subscribing to channel '#{channel}':", error
+          reject error
+        else
+          console.log "#{plur 'subscription', count} in Redis"
+          resolve()
 
   unsubscribe: (channel) ->
-    console.log "un-subscribing from channel '#{channel}'"
-    @sub.unsubscribe channel, (error, count) ->
-      if error?
-        console.error "Error unsubscribing from channel '#{channel}':", error
-      else
-        console.log "#{plur 'subscription', count} in Redis"
+    new P (resolve, reject) => 
+      console.log "un-subscribing from channel '#{channel}'"
+      @sub.unsubscribe channel, (error, count) ->
+        if error?
+          console.error "Error unsubscribing from channel '#{channel}':", error
+          reject error
+        else
+          console.log "#{plur 'subscription', count} in Redis"
+          resolve()
 
   publish: (channel, message) ->
     @pub.publish channel, message
@@ -191,6 +261,7 @@ class MemoryCore extends BaseCore
 
   unsubscribe: (channel) ->
     console.log "Pretending to unsubscribe from channel #{channel}"
+    P.resolve()
 
   publish: (channel, message) ->
     if not @paused
@@ -202,24 +273,28 @@ class MemoryCore extends BaseCore
 
 config = JSON.parse(fs.readFileSync('config.json', 'utf-8'))
 
-core = new RedisCore(config.redis.servers)
+core = new RedisCore(config.redis)
 #core = new MqttCore(config.mqtt.servers)
 #core = new MemoryCore()
 context = new ClientChannelRegistry()
 server = new ws.Server({port: 8888})
 
 core.on 'message', (channel, message) ->
-  #console.log "Received a message on channel #{channel}"
-  sockets = context.getClients(channel)
-  #console.log "Forwarding message: #{message} to #{plur 'client', _(sockets).size()}"
-  _(sockets)
-  .each (socket) ->
+  context.markChannelRecv channel
+  
+  _(context.getChannelClients(channel))
+  .toPairs()
+  .each ([clientId, socket]) ->
     record =
+      action: 'message'
       channel: channel
       message: message
+
     json = JSON.stringify record
+
     try
       socket.send json
+      context.markClientSend clientId
     catch error
       console.error """Error forwarding message:
         channel: #{channel}
@@ -242,7 +317,6 @@ server.on 'connection', (sock) ->
       core.unsubscribe channel
 
   sock.on 'message', (json) ->
-    #console.log "Received message: #{json}" 
     try
       record = JSON.parse json
       {action, channel, message} = record
@@ -250,18 +324,58 @@ server.on 'connection', (sock) ->
       switch action
         when 'publish'
           if channel? and message?
+            context.markClientRecv clientId
             core.publish channel, message
+            context.markChannelSend channel
+          else
+            logger.error "Publish record missing channel or message!"
+
         when 'subscribe'
           if channel?
-            count = context.subscribe clientId, channel
-            console.log "#{plur 'subscriber', count} on channel #{channel}"
             core.subscribe channel
+            .then ->
+              count = context.subscribe clientId, channel
+              console.log "#{plur 'subscriber', count} on channel #{channel}"
+              sock.send JSON.stringify({
+                action: 'subscribe'
+                channel: channel
+                result: 'success'
+              })
+            .catch (error) ->
+              console.error "Error subscribing client #{clientId} to channel #{channel}:", error
+              sock.send JSON.stringify({
+                action: 'subscribe'
+                channel: channel
+                result: 'failure'
+              })
+          else
+            logger.error "Subscribe record missing channel!"
+
         when 'unsubscribe'
           if channel?
-            count = context.unsubscribe clientId, channel
-            console.log "#{plur 'subscriber', count} on channel #{channel}"
-            if _(context.getClients(channel)).size() < 1
-              core.unsubscribe channel
+            unsub = P.resolve()
+
+            if _(context.getChannelClients(channel)).size() < 1
+              unsub = core.unsubscribe channel
+
+            unsub
+            .then ->
+              count = context.unsubscribe clientId, channel
+              console.log "#{plur 'subscriber', count} on channel #{channel}"
+              sock.send JSON.stringify({
+                action: 'unsubscribe'
+                channel: channel
+                result: 'success'
+              })
+            .catch (error) -> 
+              console.error "Error unsubscribing client #{clientId} from channel #{channel}:", error
+              sock.send JSON.stringify({
+                action: 'unsubscribe'
+                channel: channel
+                result: 'failure'
+              })
+          else
+            logger.error "Unsubscribe record missing channel!"
     catch error
       console.error "Invalid JSON: #{error}\n#{error.stack}\n#{json}"
 
