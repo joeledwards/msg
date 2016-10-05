@@ -28,21 +28,26 @@ EventEmitter = require 'events'
 
 # Node.js Servers
 uris = [
-  'ws://172.18.0.3:8888'
   'ws://172.18.0.4:8888'
   'ws://172.18.0.5:8888'
   'ws://172.18.0.6:8888'
+  'ws://172.18.0.7:8888'
 ]
 
 uriCount = uris.length
 
-runDuration = 20000
-channelCount = 200
-pubWorkers = 2
-subWorkers = 2
-subscriberCount = 20
-publishDelay = 1
+# Publisher Tuning Parameters
+publishDelayMillis = 0 # Delay between message sends on each channel
+messagesPerChannel = 1000 # Number of messages to send to each channel
+channelCount = 20 # Number of distinct channels
+pubWorkers = 2 # Channels are divied up between pub-workers
 
+# Subscriber Tuning Parameters
+subscriberCount = 8 # Each subscriber connects to all channels
+subWorkers = 2 # Subscribers are divied up between sub-workers
+
+totalPubMessages = channelCount * messagesPerChannel
+totalSubMessages = channelCount * messagesPerChannel * subscriberCount
 allStop = false
 
 # Run an individual publisher
@@ -52,7 +57,7 @@ runPubWorker = ({id, channelGroup}) ->
 
   webSockets = []
   active = 0
-  published = 0
+  workerSendCount = 0
   summary =
     id: id
     type: 'publisher'
@@ -62,8 +67,8 @@ runPubWorker = ({id, channelGroup}) ->
 
   # Summarize all of the message deliveries
   summarize = ->
-    console.log "[#{process.pid}] Test ran for #{watch}
-      \n  published=#{published}"
+    console.log "[#{id}] publish worker #{id} ran for #{watch}
+      \n  published=#{workerSendCount}"
 
   timedSummary = ->
     if lastSummaryWatch.duration().millis() >= 1000
@@ -72,6 +77,7 @@ runPubWorker = ({id, channelGroup}) ->
 
   finalSummary = -> summarize() if active < 1
 
+  workerMessageCount = 0
   totalWs = channelGroup.length
   pubCounter = 0
 
@@ -83,16 +89,23 @@ runPubWorker = ({id, channelGroup}) ->
     uri = uris[uriOffset]
     ws = new WebSocket(uri)
 
+    channelSendCount = 0
+    didConnect = false
+    channelWatch = durations.stopwatch()
+
     ws.once 'open', ->
-      console.log "[#{process.pid}] Publisher #{id} to channel '#{channel}' connected (#{active} of #{totalWs})"
+      didConnect = true
       active += 1
+      channelWatch.start()
+
+      console.log "[#{id}] channel '#{channel}' connected (#{active} of #{totalWs})"
 
       if active == totalWs
         process.nextTick -> worker.emit('all-ws-connected')
 
       sendMessage = () ->
         try
-          if not closed and not allStop
+          if channelSendCount < messagesPerChannel
             record =
               action: 'publish'
               channel: channel
@@ -101,47 +114,60 @@ runPubWorker = ({id, channelGroup}) ->
             message = JSON.stringify record
 
             ws.send message
-            published += 1
+            workerSendCount += 1
+            channelSendCount += 1
+
+            if workerSendCount >= workerMessageCount
+              console.log "[#{id}] All #{workerMessageCount} messages published in #{channelWatch}"
 
             timedSummary()
 
-            setTimeout sendMessage, publishDelay
+            setTimeout sendMessage, publishDelayMillis
+          else
+            console.log "[#{id}] All #{messagesPerChannel} messages published to channel '#{channel}' in #{channelWatch}"
+
+            ws.close()
         catch error
-          console.error "[#{process.pid}] Error publishing message:", error
+          console.error "[#{id}] Error publishing message:", error
 
       worker.once 'start', ->
+        console.log "[#{id}] Publishing first message to channel '#{channel}'"
         sendMessage()
 
     ws.once 'close', ->
-      console.log "[#{process.pid}] Publisher #{id} to channel '#{channel}' disconnected (#{active} of #{totalWs})"
+      if didConnect
+        active -= 1
+
+      console.log "[#{id}] channel '#{channel}' disconnected (#{active} of #{totalWs})"
       closed = true
-      active -= 1
 
       if active < 1
         finalSummary()
-        summary.published = published
+        summary.published = workerSendCount
         process.nextTick -> worker.emit('all-ws-disconnected')
         process.nextTick -> worker.emit('worker-summary', summary)
 
     ws.on 'error', (error) ->
-      console.error "[#{process.pid}] Publisher #{id} to channel '#{channel}' - error:", error
+      console.error "[#{id}] channel '#{channel}' - error:", error
 
     webSockets.push ws
 
-  # Termination function for all WebSockets
-  closeWebSockets = () ->
-    console.log "[#{process.pid}] Closing worker #{id} WebSockets
-      after #{watch}"
-    webSockets.forEach (ws) ->
-      try
-        ws.close()
-      catch error
-        console.error "[#{process.pid}] Error closing WebSocket:", error
-
+#  # Termination function for all WebSockets
+#  closeWebSockets = () ->
+#    console.log "[#{id}] Closing worker #{id} WebSockets
+#      after #{watch}"
+#    webSockets.forEach (ws) ->
+#      try
+#        ws.close()
+#      catch error
+#        console.error "[#{id}] Error closing WebSocket:", error
+#
   # Set the termination timeout once we get the 'start' signal
   worker.once 'start', ->
     watch.start()
-    setTimeout closeWebSockets, runDuration
+#    setTimeout closeWebSockets, runDuration
+
+  workerMessageCount = pubCounter * messagesPerChannel
 
   worker
 
@@ -153,7 +179,7 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
   console.log "#{id} subscriberGroup:", subscriberGroup
   webSockets = []
   active = 0
-  received = 0
+  workerRecvCount = 0
   summary =
     id: id
     type: 'subscriber'
@@ -163,16 +189,18 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
 
   # Summarize all of the message deliveries
   summarize = ->
-    console.log "[#{process.pid}] Test ran for #{watch}
-      \n  received=#{received}"
+    console.log "[#{id}] subscription worker #{id} ran for #{watch}
+      \n  received=#{workerRecvCount}"
 
   timedSummary = ->
     if lastSummaryWatch.duration().millis() >= 1000
       summarize()
       lastSummaryWatch.reset().start()
 
-  finalSummary = -> summarize() if active < 1
+  if active < 1
+    finalSummary = -> summarize()
 
+  workerMessageCount = 0
   totalWs = channels.length * subscriberGroup.length
 
   subCounter = 0
@@ -183,52 +211,93 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
       uri = uris[uriOffset]
       ws = new WebSocket(uri)
 
-      ws.once 'open', ->
-        console.log "[#{process.pid}] Subscriber #{i} to channel '#{channel}' connected (#{active} of #{totalWs})"
-        active += 1
+      channelRecvCount = 0
+      didConnect = false
+      channelWatch = durations.stopwatch()
 
-        subscription =
+      # The WebSocket is connected
+      ws.once 'open', ->
+        ws.send JSON.stringify({
           action: 'subscribe'
           channel: channel
-        ws.send JSON.stringify(subscription)
+        })
 
-        if active >= totalWs
-          process.nextTick -> worker.emit('all-ws-connected')
-
+      # Received a message from the WebSocket
       ws.on 'message', (message) ->
-        #console.log "Subscriber #{i} to channel '#{channel}' received message : #{message}"
-        received += 1
-        timedSummary()
+        record = JSON.parse message
 
+        switch record.action
+          when 'subscribe'
+            if record.result == 'success'
+              didConnect = true
+              active += 1
+              channelWatch.start()
+
+              console.log "[#{id}] Subscriber #{i} to channel '#{channel}' connected (#{active} of #{totalWs})"
+
+              if active >= totalWs
+                process.nextTick -> worker.emit('all-ws-connected')
+            else
+              console.log "[#{id}] Subscriber #{i} to channel '#{channel}' failed to subscribe"
+              ws.close()
+
+          when 'unsubscribe'
+            if record.result != 'success'
+              console.log "[#{id}] Subscriber #{i} to channel '#{channel}' failed to unsubscribe"
+
+            ws.close()
+
+          when 'message'
+            workerRecvCount += 1
+            channelRecvCount += 1
+
+            if workerRecvCount >= workerMessageCount
+              console.log "[#{id}] All #{workerMessageCount} messages consumed in #{channelWatch}"
+
+            if channelRecvCount >= messagesPerChannel
+              console.log "[#{id}] All #{messagesPerChannel} messages consumed from channel '#{channel}' in #{channelWatch}"
+
+              ws.send JSON.stringify({
+                action: 'unsubscribe'
+                channel: channel
+              })
+            else
+              timedSummary()
+
+      # The WebSocket has been closed
       ws.once 'close', ->
-        console.log "[#{process.pid}] Subscriber #{i} to channel '#{channel}' disconnected (#{active} of #{totalWs})"
-        active -= 1
+        if didConnect
+          active -= 1
+
+        console.log "[#{id}] Subscriber #{i} to channel '#{channel}' disconnected (#{active} of #{totalWs})"
 
         if active < 1
           finalSummary()
-          summary.received = received
+          summary.received = workerRecvCount
           process.nextTick -> worker.emit('all-ws-disconnected')
           process.nextTick -> worker.emit('worker-summary', summary)
 
       ws.on 'error', (error) ->
-        console.error "[#{process.pid}] Subscriber #{i} to channel '#{channel}' - error:", error
+        console.error "[#{id}] Subscriber #{i} to channel '#{channel}' - error:", error
 
       webSockets.push ws
 
-  closeWebSockets = () ->
-    console.log "[#{process.pid}] Closing worker #{id} WebSockets
-      after #{watch}"
-
-    webSockets.forEach (ws) ->
-      try
-        ws.close()
-      catch error
-        console.error "[#{process.pid}] Error closing WebSocket:", error
-
+#  closeWebSockets = () ->
+#    console.log "[#{id}] Closing worker #{id} WebSockets
+#      after #{watch}"
+#
+#    webSockets.forEach (ws) ->
+#      try
+#        ws.close()
+#      catch error
+#        console.error "[#{id}] Error closing WebSocket:", error
+#
   # Set the termination timeout once we get the 'start' signal
   worker.once 'start', ->
     watch.start()
-    setTimeout closeWebSockets, runDuration
+#    setTimeout closeWebSockets, runDuration
+
+  workerMessageCount = subCounter * messagesPerChannel
 
   worker
 
@@ -249,7 +318,7 @@ runMaster = ->
   chunks = _.chunk(channels, pubWorkers)
   channelGroups = _.zip(chunks...)
 
-  console.log "[#{process.pid}] Channel Groups:
+  console.log "[master] Channel Groups:
     #{JSON.stringify(channelGroups)}"
    
   # Add publisher jobs
@@ -264,7 +333,7 @@ runMaster = ->
   chunks = _.chunk(subscribers, subWorkers)
   subscriberGroups = _.zip(chunks...)
 
-  console.log "[#{process.pid}] Subscriber Groups:
+  console.log "[master] Subscriber Groups:
     #{JSON.stringify(subscriberGroups)}"
 
   # Add subscriber jobs
@@ -275,7 +344,7 @@ runMaster = ->
       channels: channels
       subscriberGroup: subscriberGroups[i]
 
-  console.log "[#{process.pid}] jobs:\n#{JSON.stringify(jobs, null, 2)}"
+  console.log "[master] jobs:\n#{JSON.stringify(jobs, null, 2)}"
 
   # Fork a new worker process for each job
   jobs.forEach (job) ->
@@ -287,13 +356,13 @@ runMaster = ->
       switch msg.action
         # Worker is ready to receive its job
         when 'worker-ready'
-          console.log "[#{process.pid}] sending job to worker #{job.id}"
+          console.log "[master] sending job to worker #{job.id}"
           worker.send
             action: 'job'
             job: job
         # Worker has established all of its WebSockets and is ready to start
         when 'all-ws-connected'
-          console.log "[#{process.pid}] worker #{job.id} all ws connected"
+          console.log "[master] worker #{job.id} all ws connected"
           connectedWorkers += 1
           if connectedWorkers == workers.length
             workers.forEach (worker) ->
@@ -301,7 +370,7 @@ runMaster = ->
                 action: 'start'
         # Worker has terminated all of its WebSockets and is ready to halt
         when 'all-ws-disconnected'
-          console.log "[#{process.pid}] worker #{job.id} all ws disconnected"
+          console.log "[master] worker #{job.id} all ws disconnected"
           disconnectedWorkers += 1
 
           if disconnectedWorkers == workers.length
@@ -309,7 +378,7 @@ runMaster = ->
         # Worker summary supplied
         when 'worker-summary'
           worker.removeListener 'message', messageHandler
-          console.log "[#{process.pid}]
+          console.log "[master]
             received summary from worker #{job.id}:
             #{JSON.stringify(msg.summary)}"
 
@@ -328,32 +397,37 @@ runMaster = ->
               .map ({published}) -> published
               .reduce (v, acc) -> v + acc
 
-            console.log "   run duration (ms): #{runDuration}"
-            console.log "  publish delay (ms): #{publishDelay}"
-            console.log "       channel count: #{channelCount}"
-            console.log "         pub workers: #{pubWorkers}"
-            console.log "         sub workers: #{subWorkers}"
-            console.log "         subscribers: #{subscriberCount}"
+            console.log "     publish delay (ms): #{publishDelayMillis}"
+            console.log "            pub workers: #{pubWorkers}"
+            console.log ""
+            console.log "            subscribers: #{subscriberCount}"
+            console.log "            sub workers: #{subWorkers}"
+            console.log ""
+            console.log "          channel count: #{channelCount}"
+            console.log "  messagess per channel: #{messagesPerChannel}"
+            console.log ""
+            console.log "     total pub messages: #{totalPubMessages}"
+            console.log "     total sub messages: #{totalSubMessages}"
             console.log " -------------------------------"
-            console.log "     total published: #{published}"
-            console.log "      total received: #{received}"
+            console.log "        total published: #{published}"
+            console.log "         total received: #{received}"
 
             process.exit 0
 
     worker.on 'message', messageHandler
 
   cluster.on 'exit', (worker, code, signal) ->
-    console.log "[#{process.pid}] Pub-worker #{worker.process.pid} halted"
+    console.log "[master] Pub-worker #{worker.process.pid} halted"
 
 # Worker process
 runWorker = ->
-  console.log "[#{process.pid}] worker started"
+  console.log "New worker process started with PID #{process.pid}"
   worker = {}
 
   process.on 'message', (msg) ->
     switch msg.action
       when 'job'
-        console.log "[#{process.pid}] worker #{msg.job.id} received its job:
+        console.log "[#{msg.job.id}] worker received its job:
           #{JSON.stringify(msg.job)}"
 
         job = msg.job

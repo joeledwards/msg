@@ -1,0 +1,47 @@
+{
+  "mqtt": {
+    "servers": [
+      {
+        "host": "172.17.0.2",
+        "port": 1883
+      },
+      {
+        "host": "172.17.0.3",
+        "port": 1883
+      }
+    ]
+  },
+  "redis": {
+    "cluster": false,
+    "server": {
+        "host": "redis",
+        "port": 6379
+    },
+    "servers": [
+      {
+        "host": "redis-cluster",
+        "port": 7000
+      },
+      {
+        "host": "redis-cluster",
+        "port": 7001
+      },
+      {
+        "host": "redis-cluster",
+        "port": 7002
+      },
+      {
+        "host": "redis-cluster",
+        "port": 7003
+      },
+      {
+        "host": "redis-cluster",
+        "port": 7004
+      },
+      {
+        "host": "redis-cluster",
+        "port": 7005
+      }
+    ]
+  }
+}
