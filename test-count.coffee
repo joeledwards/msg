@@ -152,20 +152,9 @@ runPubWorker = ({id, channelGroup}) ->
 
     webSockets.push ws
 
-#  # Termination function for all WebSockets
-#  closeWebSockets = () ->
-#    console.log "[#{id}] Closing worker #{id} WebSockets
-#      after #{watch}"
-#    webSockets.forEach (ws) ->
-#      try
-#        ws.close()
-#      catch error
-#        console.error "[#{id}] Error closing WebSocket:", error
-#
   # Set the termination timeout once we get the 'start' signal
   worker.once 'start', ->
     watch.start()
-#    setTimeout closeWebSockets, runDuration
 
   workerMessageCount = pubCounter * messagesPerChannel
 
@@ -282,20 +271,9 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
 
       webSockets.push ws
 
-#  closeWebSockets = () ->
-#    console.log "[#{id}] Closing worker #{id} WebSockets
-#      after #{watch}"
-#
-#    webSockets.forEach (ws) ->
-#      try
-#        ws.close()
-#      catch error
-#        console.error "[#{id}] Error closing WebSocket:", error
-#
   # Set the termination timeout once we get the 'start' signal
   worker.once 'start', ->
     watch.start()
-#    setTimeout closeWebSockets, runDuration
 
   workerMessageCount = subCounter * messagesPerChannel
 
