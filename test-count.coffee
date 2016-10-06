@@ -19,12 +19,16 @@ EventEmitter = require 'events'
 #uris = ['ws://localhost:8888']
 
 # Elixir Servers
-#uris = [
-#  'ws://172.18.0.7:8080/pubsub'
-#  'ws://172.18.0.8:8080/pubsub'
-#  'ws://172.18.0.9:8080/pubsub'
-#  'ws://172.18.0.10:8080/pubsub'
-#]
+uris = [
+  'ws://172.20.0.2:8080/pubsub'
+  'ws://172.20.0.3:8080/pubsub'
+  'ws://172.20.0.4:8080/pubsub'
+  'ws://172.20.0.5:8080/pubsub'
+  'ws://172.20.0.6:8080/pubsub'
+  'ws://172.20.0.7:8080/pubsub'
+  'ws://172.20.0.8:8080/pubsub'
+  'ws://172.20.0.9:8080/pubsub'
+]
 
 # Node.js Servers
 uris = [
@@ -32,11 +36,16 @@ uris = [
   'ws://172.18.0.5:8888'
   'ws://172.18.0.6:8888'
   'ws://172.18.0.7:8888'
+  'ws://172.18.0.8:8888'
+  'ws://172.18.0.9:8888'
+  'ws://172.18.0.10:8888'
+  'ws://172.18.0.11:8888'
 ]
 
 uriCount = uris.length
 
 # Publisher Tuning Parameters
+initialPublishDelayMillis = 2000 # Delay between all sockets connected and first message published
 publishDelayMillis = 0 # Delay between message sends on each channel
 messagesPerChannel = 1000 # Number of messages to send to each channel
 channelCount = 20 # Number of distinct channels
@@ -98,7 +107,7 @@ runPubWorker = ({id, channelGroup}) ->
       active += 1
       channelWatch.start()
 
-      console.log "[#{id}] channel '#{channel}' connected (#{active} of #{totalWs})"
+      console.log "[#{id}] channel '#{channel}' connected (#{active} of #{totalWs}) : #{uri}"
 
       if active == totalWs
         process.nextTick -> worker.emit('all-ws-connected')
@@ -118,7 +127,7 @@ runPubWorker = ({id, channelGroup}) ->
             channelSendCount += 1
 
             if workerSendCount >= workerMessageCount
-              console.log "[#{id}] All #{workerMessageCount} messages published in #{channelWatch}"
+              console.log "[#{id}] All #{workerMessageCount} messages published in #{channelWatch} : #{uri}"
 
             timedSummary()
 
@@ -138,7 +147,7 @@ runPubWorker = ({id, channelGroup}) ->
       if didConnect
         active -= 1
 
-      console.log "[#{id}] channel '#{channel}' disconnected (#{active} of #{totalWs})"
+      console.log "[#{id}] channel '#{channel}' disconnected (#{active} of #{totalWs}) : #{uri}"
       closed = true
 
       if active < 1
@@ -222,7 +231,7 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
               active += 1
               channelWatch.start()
 
-              console.log "[#{id}] Subscriber #{i} to channel '#{channel}' connected (#{active} of #{totalWs})"
+              console.log "[#{id}] Subscriber #{i} to channel '#{channel}' connected (#{active} of #{totalWs}) : #{uri}"
 
               if active >= totalWs
                 process.nextTick -> worker.emit('all-ws-connected')
@@ -253,12 +262,15 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
             else
               timedSummary()
 
+          else
+            console.error "Unregonized message from pub/sub server!"
+
       # The WebSocket has been closed
       ws.once 'close', ->
         if didConnect
           active -= 1
 
-        console.log "[#{id}] Subscriber #{i} to channel '#{channel}' disconnected (#{active} of #{totalWs})"
+        console.log "[#{id}] Subscriber #{i} to channel '#{channel}' disconnected (#{active} of #{totalWs}) : #{uri}"
 
         if active < 1
           finalSummary()
@@ -342,10 +354,13 @@ runMaster = ->
         when 'all-ws-connected'
           console.log "[master] worker #{job.id} all ws connected"
           connectedWorkers += 1
+
           if connectedWorkers == workers.length
-            workers.forEach (worker) ->
-              worker.send
-                action: 'start'
+            startWorkers = ->
+              workers.forEach (worker) ->
+                worker.send
+                  action: 'start'
+            setTimeout startWorkers, initialPublishDelayMillis
         # Worker has terminated all of its WebSockets and is ready to halt
         when 'all-ws-disconnected'
           console.log "[master] worker #{job.id} all ws disconnected"
@@ -375,20 +390,21 @@ runMaster = ->
               .map ({published}) -> published
               .reduce (v, acc) -> v + acc
 
-            console.log "     publish delay (ms): #{publishDelayMillis}"
-            console.log "            pub workers: #{pubWorkers}"
+            console.log "  initial publish delay (ms): #{initialPublishDelayMillis}"
+            console.log "          publish delay (ms): #{publishDelayMillis}"
+            console.log "                 pub workers: #{pubWorkers}"
             console.log ""
-            console.log "            subscribers: #{subscriberCount}"
-            console.log "            sub workers: #{subWorkers}"
+            console.log "                 subscribers: #{subscriberCount}"
+            console.log "                 sub workers: #{subWorkers}"
             console.log ""
-            console.log "          channel count: #{channelCount}"
-            console.log "  messagess per channel: #{messagesPerChannel}"
+            console.log "               channel count: #{channelCount}"
+            console.log "       messagess per channel: #{messagesPerChannel}"
             console.log ""
-            console.log "     total pub messages: #{totalPubMessages}"
-            console.log "     total sub messages: #{totalSubMessages}"
+            console.log "          total pub messages: #{totalPubMessages}"
+            console.log "          total sub messages: #{totalSubMessages}"
             console.log " -------------------------------"
-            console.log "        total published: #{published}"
-            console.log "         total received: #{received}"
+            console.log "             total published: #{published}"
+            console.log "              total received: #{received}"
 
             process.exit 0
 
