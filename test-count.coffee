@@ -19,40 +19,47 @@ EventEmitter = require 'events'
 #uris = ['ws://localhost:8888']
 
 # Elixir Servers
-uris = [
-  'ws://172.20.0.2:8080/pubsub'
-  'ws://172.20.0.3:8080/pubsub'
-  'ws://172.20.0.4:8080/pubsub'
-  'ws://172.20.0.5:8080/pubsub'
-  'ws://172.20.0.6:8080/pubsub'
-  'ws://172.20.0.7:8080/pubsub'
-  'ws://172.20.0.8:8080/pubsub'
-  'ws://172.20.0.9:8080/pubsub'
-]
+elixirCluster =
+  type: 'elixir'
+  uris: [
+    'ws://172.20.0.2:8080/pubsub'
+    'ws://172.20.0.3:8080/pubsub'
+    'ws://172.20.0.4:8080/pubsub'
+    #'ws://172.20.0.5:8080/pubsub'
+    #'ws://172.20.0.6:8080/pubsub'
+    #'ws://172.20.0.7:8080/pubsub'
+    #'ws://172.20.0.8:8080/pubsub'
+    #'ws://172.20.0.9:8080/pubsub'
+  ]
 
 # Node.js Servers
-uris = [
-  'ws://172.18.0.4:8888'
-  'ws://172.18.0.5:8888'
-  'ws://172.18.0.6:8888'
-  'ws://172.18.0.7:8888'
-  'ws://172.18.0.8:8888'
-  'ws://172.18.0.9:8888'
-  'ws://172.18.0.10:8888'
-  'ws://172.18.0.11:8888'
-]
+nodeCluster =
+  type: 'nodejs'
+  uris: [
+    'ws://172.18.0.4:8888'
+    'ws://172.18.0.5:8888'
+    'ws://172.18.0.6:8888'
+    'ws://172.18.0.7:8888'
+    'ws://172.18.0.8:8888'
+    'ws://172.18.0.9:8888'
+    'ws://172.18.0.10:8888'
+    'ws://172.18.0.11:8888'
+  ]
 
+pubSubCluster = elixirCluster
+uris = pubSubCluster.uris
 uriCount = uris.length
 
 # Publisher Tuning Parameters
-initialPublishDelayMillis = 2000 # Delay between all sockets connected and first message published
-publishDelayMillis = 0 # Delay between message sends on each channel
+initialPublishDelayMillis = 5000 # Delay between all sockets connected and first message published
+publishDelayMillis = 100 # Delay between message sends on each channel
 messagesPerChannel = 1000 # Number of messages to send to each channel
-channelCount = 20 # Number of distinct channels
+channelCount = 100 # Number of distinct channels
 pubWorkers = 2 # Channels are divied up between pub-workers
 
 # Subscriber Tuning Parameters
-subscriberCount = 8 # Each subscriber connects to all channels
+subscriberChannelTimeoutMillis = 10000
+subscriberCount = 10 # Each subscriber connects to all channels
 subWorkers = 2 # Subscribers are divied up between sub-workers
 
 totalPubMessages = channelCount * messagesPerChannel
@@ -70,6 +77,10 @@ runPubWorker = ({id, channelGroup}) ->
   summary =
     id: id
     type: 'publisher'
+    channels: {}
+    workerDuration: 0
+    workerStart: 0
+    workerEnd: 0
 
   watch = durations.stopwatch()
   lastSummaryWatch = durations.stopwatch().start()
@@ -101,11 +112,12 @@ runPubWorker = ({id, channelGroup}) ->
     channelSendCount = 0
     didConnect = false
     channelWatch = durations.stopwatch()
+    channelStart = 0
+    channelEnd = 0
 
     ws.once 'open', ->
       didConnect = true
       active += 1
-      channelWatch.start()
 
       console.log "[#{id}] channel '#{channel}' connected (#{active} of #{totalWs}) : #{uri}"
 
@@ -114,7 +126,28 @@ runPubWorker = ({id, channelGroup}) ->
 
       sendMessage = () ->
         try
-          if channelSendCount < messagesPerChannel
+          # Check if channel is done
+          if channelSendCount >= messagesPerChannel
+            channelWatch.stop()
+            channelEnd = moment.utc()
+            console.log "[#{id}] All #{messagesPerChannel} messages published to channel '#{channel}' in #{channelWatch}"
+            summary.channels[channel] =
+              duration: channelWatch.duration().nanos()
+              start: channelStart
+              end: channelEnd
+
+            # Check if worker is done
+            if workerSendCount >= workerMessageCount
+              watch.stop()
+              summary.workerEnd = moment.utc()
+              console.log "[#{id}] All #{workerMessageCount} messages published in #{watch} : #{uri}"
+              summary.workerDuration = watch.duration().nanos()
+              summary.published = workerSendCount
+
+            ws.close()
+
+          # While channel is not done, continue sending messages
+          else
             record =
               action: 'publish'
               channel: channel
@@ -126,20 +159,20 @@ runPubWorker = ({id, channelGroup}) ->
             workerSendCount += 1
             channelSendCount += 1
 
-            if workerSendCount >= workerMessageCount
-              console.log "[#{id}] All #{workerMessageCount} messages published in #{channelWatch} : #{uri}"
-
             timedSummary()
 
             setTimeout sendMessage, publishDelayMillis
-          else
-            console.log "[#{id}] All #{messagesPerChannel} messages published to channel '#{channel}' in #{channelWatch}"
 
-            ws.close()
         catch error
           console.error "[#{id}] Error publishing message:", error
 
       worker.once 'start', ->
+        if summary.workerStart == 0
+          watch.start()
+          summary.workerStart = moment.utc()
+
+        channelWatch.start()
+        channelStart = moment.utc()
         console.log "[#{id}] Publishing first message to channel '#{channel}'"
         sendMessage()
 
@@ -152,7 +185,6 @@ runPubWorker = ({id, channelGroup}) ->
 
       if active < 1
         finalSummary()
-        summary.published = workerSendCount
         process.nextTick -> worker.emit('all-ws-disconnected')
         process.nextTick -> worker.emit('worker-summary', summary)
 
@@ -160,10 +192,6 @@ runPubWorker = ({id, channelGroup}) ->
       console.error "[#{id}] channel '#{channel}' - error:", error
 
     webSockets.push ws
-
-  # Set the termination timeout once we get the 'start' signal
-  worker.once 'start', ->
-    watch.start()
 
   workerMessageCount = pubCounter * messagesPerChannel
 
@@ -181,8 +209,12 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
   summary =
     id: id
     type: 'subscriber'
-  watch = durations.stopwatch()
+    channels: {}
+    workerDuration: 0
+    workerStart: 0
+    workerEnd: 0
 
+  watch = durations.stopwatch()
   lastSummaryWatch = durations.stopwatch().start()
 
   # Summarize all of the message deliveries
@@ -208,10 +240,63 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
       uriOffset = subCounter % uriCount
       uri = uris[uriOffset]
       ws = new WebSocket(uri)
+      lastReceived = 0
 
       channelRecvCount = 0
       didConnect = false
       channelWatch = durations.stopwatch()
+      channelStart = 0
+      channelEnd = 0
+
+      closeHandler = ->
+        if didConnect
+          active -= 1
+
+        console.log "[#{id}] Subscriber #{i} to channel '#{channel}' disconnected (#{active} of #{totalWs}) : #{uri}"
+
+        if active < 1
+          finalSummary()
+          process.nextTick -> worker.emit('all-ws-disconnected')
+          process.nextTick -> worker.emit('worker-summary', summary)
+
+      # Wrap up this WebSocket
+      wrappedUp = false
+      wrapUp = (unsubscribe) ->
+        console.log "Wrap up called: wrappedUp=#{wrappedUp} unsubscribe=#{unsubscribe}"
+
+        if wrappedUp == false
+          wrappedUp = true
+
+          channelWatch.stop()
+          channelEnd = moment.utc()
+          console.log "[#{id}] #{channelRecvCount} messages consumed from channel '#{channel}' in #{channelWatch}"
+          summary.channels[channel] =
+            duration: channelWatch.duration().nanos()
+            start: channelStart
+            end: channelEnd
+
+          # Check if worker is done
+          if workerRecvCount >= workerMessageCount
+            watch.stop()
+            summary.workerEnd = moment.utc()
+            console.log "[#{id}] All #{workerMessageCount} messages consumed in #{watch}"
+            summary.workerDuration = watch.duration().nanos()
+            summary.received = workerRecvCount
+
+          if unsubscribe == true
+            try
+              ws.send JSON.stringify({
+                action: 'unsubscribe'
+                channel: channel
+              })
+            catch error
+              console.log "[#{id}] Subscriber #{i} to channel '#{channel}' : Error unsubscribing:", error
+          else
+            try
+              ws.close()
+            catch error
+              console.log "[#{id}] Subscriber #{i} to channel '#{channel}' : Error closing WebSocket:", error
+        
 
       # The WebSocket is connected
       ws.once 'open', ->
@@ -225,11 +310,11 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
         record = JSON.parse message
 
         switch record.action
+          # Handle subscription response
           when 'subscribe'
             if record.result == 'success'
               didConnect = true
               active += 1
-              channelWatch.start()
 
               console.log "[#{id}] Subscriber #{i} to channel '#{channel}' connected (#{active} of #{totalWs}) : #{uri}"
 
@@ -239,26 +324,33 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
               console.log "[#{id}] Subscriber #{i} to channel '#{channel}' failed to subscribe"
               ws.close()
 
+          # Handle unsubscription response
           when 'unsubscribe'
             if record.result != 'success'
               console.log "[#{id}] Subscriber #{i} to channel '#{channel}' failed to unsubscribe"
 
             ws.close()
 
+          # Handle received messages
           when 'message'
+            lastReceived = moment.utc()
+
+            if channelStart == 0
+              channelWatch.start()
+              channelStart = moment.utc()
+
+              if summary.workerStart == 0
+                watch.start()
+                summary.workerStart = moment.utc()
+
             workerRecvCount += 1
             channelRecvCount += 1
 
-            if workerRecvCount >= workerMessageCount
-              console.log "[#{id}] All #{workerMessageCount} messages consumed in #{channelWatch}"
-
+            # Check if channel is done
             if channelRecvCount >= messagesPerChannel
-              console.log "[#{id}] All #{messagesPerChannel} messages consumed from channel '#{channel}' in #{channelWatch}"
+              wrapUp(true)
 
-              ws.send JSON.stringify({
-                action: 'unsubscribe'
-                channel: channel
-              })
+            # While channel is not, keep reporting progress
             else
               timedSummary()
 
@@ -266,27 +358,26 @@ runSubWorker = ({id, subscriberGroup, channels}) ->
             console.error "Unregonized message from pub/sub server!"
 
       # The WebSocket has been closed
-      ws.once 'close', ->
-        if didConnect
-          active -= 1
-
-        console.log "[#{id}] Subscriber #{i} to channel '#{channel}' disconnected (#{active} of #{totalWs}) : #{uri}"
-
-        if active < 1
-          finalSummary()
-          summary.received = workerRecvCount
-          process.nextTick -> worker.emit('all-ws-disconnected')
-          process.nextTick -> worker.emit('worker-summary', summary)
+      ws.once 'close', closeHandler
 
       ws.on 'error', (error) ->
         console.error "[#{id}] Subscriber #{i} to channel '#{channel}' - error:", error
 
       webSockets.push ws
 
-  # Set the termination timeout once we get the 'start' signal
-  worker.once 'start', ->
-    watch.start()
+      # If we have gone too long since the previous message was received, halt.
+      timeoutCheck = ->
+        now = moment.utc()
 
+        if lastReceived > 0 and (now - lastReceived) > subscriberChannelTimeoutMillis
+          console.log "[#{id}] Subscriber #{i} to channel '#{channel}' timeout after #{subscriberChannelTimeoutMillis} ms"
+          wrapUp(false)
+        else
+          setTimeout timeoutCheck, 1000
+
+      # Check every second
+      setTimeout timeoutCheck, 1000
+        
   workerMessageCount = subCounter * messagesPerChannel
 
   worker
@@ -378,33 +469,138 @@ runMaster = ->
           summaries.push msg.summary
 
           if summaries.length == workers.length
-            console.log "Summaries:", summaries
+            console.log "Summaries:", JSON.stringify(summaries, null, 2)
 
-            received = summaries
-              .filter (sum) -> sum.type == 'subscriber'
-              .map ({received}) -> received
-              .reduce (v, acc) -> v + acc
+            pubSummaries = summaries
+            .filter (sum) -> sum.type == 'publisher'
 
-            published = summaries
-              .filter (sum) -> sum.type == 'publisher'
-              .map ({published}) -> published
-              .reduce (v, acc) -> v + acc
+            subSummaries = summaries
+            .filter (sum) -> sum.type == 'subscriber'
 
-            console.log "  initial publish delay (ms): #{initialPublishDelayMillis}"
-            console.log "          publish delay (ms): #{publishDelayMillis}"
-            console.log "                 pub workers: #{pubWorkers}"
+            published = pubSummaries
+            .map ({published}) -> published
+            .reduce (v, acc) -> v + acc
+
+            received = subSummaries
+            .map ({received}) -> received
+            .reduce (v, acc) -> v + acc
+
+            pubWorkerDurations = pubSummaries.map ({workerDuration}) -> workerDuration
+            meanPubWorkerDuration = pubWorkerDurations.reduce((v, acc) -> v + acc) / pubWorkerDurations.length
+            maxPubWorkerDuration = pubWorkerDurations.reduce (v, m) -> Math.max(v, m)
+            minPubWorkerDuration = pubWorkerDurations.reduce (v, m) -> Math.min(v, m)
+
+            subWorkerDurations = subSummaries.map ({workerDuration}) -> workerDuration
+            meanSubWorkerDuration = subWorkerDurations.reduce((v, acc) -> v + acc) / subWorkerDurations.length
+            maxSubWorkerDuration = subWorkerDurations.reduce (v, m) -> Math.max(v, m)
+            minSubWorkerDuration = subWorkerDurations.reduce (v, m) -> Math.min(v, m)
+
+            pubChannelDurations = _(pubSummaries)
+              .map ({channels}) ->
+                _(channels)
+                .values()
+                .map ({duration}) -> duration
+                .value()
+              .flatten()
+              .value()
+            meanPubChannelDuration = pubChannelDurations.reduce((v, acc) -> v + acc) / pubChannelDurations.length
+            maxPubChannelDuration = pubChannelDurations.reduce (v, m) -> Math.max(v, m)
+            minPubChannelDuration = pubChannelDurations.reduce (v, m) -> Math.min(v, m)
+
+            subChannelDurations = _(subSummaries)
+              .map ({channels}) ->
+                _(channels)
+                .values()
+                .map ({duration}) -> duration
+                .value()
+              .flatten()
+              .value()
+            meanSubChannelDuration = subChannelDurations.reduce((v, acc) -> v + acc) / subChannelDurations.length
+            maxSubChannelDuration = subChannelDurations.reduce (v, m) -> Math.max(v, m)
+            minSubChannelDuration = subChannelDurations.reduce (v, m) -> Math.min(v, m)
+
+            # Channel duration summary
+            console.log "Channel Durations"
+
+            console.log "  Publishers"
+            pubSummaries
+            .forEach ({id, channels}) ->
+              console.log "    Worker #{id}"
+              _(channels)
+              .toPairs()
+              .each ([channel, {duration, start, end}]) ->
+                console.log "      #{channel} : #{durations.duration(duration)} 
+                  (#{moment(start).toISOString()} - #{moment(end).toISOString()})"
+
+            console.log "  Subscribers"
+            subSummaries
+            .forEach ({id, channels}) ->
+              console.log "    Worker #{id}"
+              _(channels)
+              .toPairs()
+              .each ([channel, {duration, start, end}]) ->
+                console.log "      #{channel} : #{durations.duration(duration)} 
+                  (#{moment(start).toISOString()} - #{moment(end).toISOString()})"
+
             console.log ""
-            console.log "                 subscribers: #{subscriberCount}"
-            console.log "                 sub workers: #{subWorkers}"
             console.log ""
-            console.log "               channel count: #{channelCount}"
-            console.log "       messagess per channel: #{messagesPerChannel}"
+
+            # Worker duration summary
+            console.log "Worker Durations"
+
+            console.log "  Publishers"
+            pubSummaries
+            .forEach ({id, workerDuration, workerStart, workerEnd}) ->
+              console.log "    #{id} : #{durations.duration(workerDuration)}
+                (#{moment(workerStart).toISOString()} - #{moment(workerEnd).toISOString()})"
+
+            console.log "  Subscribers"
+            subSummaries
+            .forEach ({id, workerDuration, workerStart, workerEnd}) ->
+              console.log "    #{id} : #{durations.duration(workerDuration)}
+                (#{moment(workerStart).toISOString()} - #{moment(workerEnd).toISOString()})"
+
             console.log ""
-            console.log "          total pub messages: #{totalPubMessages}"
-            console.log "          total sub messages: #{totalSubMessages}"
+            console.log ""
+
+            # General summary
+            console.log " ----- GENERAL -----"
+            console.log "                Cluster type: #{pubSubCluster.type}"
+            console.log "                Cluster size: #{uriCount}"
+            console.log "               Channel count: #{channelCount}"
+            console.log "       Messagess per channel: #{messagesPerChannel}"
+            console.log ""
+            console.log " ----- PUBLISHERS -----"
+            console.log "  Initial publish delay (ms): #{initialPublishDelayMillis}"
+            console.log "  Channel publish delay (ms): #{publishDelayMillis}"
+            console.log "                 Pub workers: #{pubWorkers}"
+            console.log ""
+            console.log "    min Pub channel duration: #{durations.duration(minPubChannelDuration)}"
+            console.log "   mean Pub channel duration: #{durations.duration(meanPubChannelDuration)}"
+            console.log "    max Pub channel duration: #{durations.duration(maxPubChannelDuration)}"
+            console.log ""
+            console.log "     min Pub worker duration: #{durations.duration(minPubWorkerDuration)}"
+            console.log "    mean Pub worker duration: #{durations.duration(meanPubWorkerDuration)}"
+            console.log "     max Pub worker duration: #{durations.duration(maxPubWorkerDuration)}"
+            console.log ""
+            console.log " ----- SUBSCRIBERS -----"
+            console.log "                 Subscribers: #{subscriberCount}"
+            console.log "                 Sub workers: #{subWorkers}"
+            console.log ""
+            console.log "    min Sub channel duration: #{durations.duration(minSubChannelDuration)}"
+            console.log "   mean Sub channel duration: #{durations.duration(meanSubChannelDuration)}"
+            console.log "    max Sub channel duration: #{durations.duration(maxSubChannelDuration)}"
+            console.log ""
+            console.log "     min Sub worker duration: #{durations.duration(minSubWorkerDuration)}"
+            console.log "    mean Sub worker duration: #{durations.duration(meanSubWorkerDuration)}"
+            console.log "     max Sub worker duration: #{durations.duration(maxSubWorkerDuration)}"
+            console.log ""
             console.log " -------------------------------"
-            console.log "             total published: #{published}"
-            console.log "              total received: #{received}"
+            console.log "       Expected Pub messages: #{totalPubMessages}"
+            console.log "       Expected Sub messages: #{totalSubMessages}"
+            console.log ""
+            console.log "         Actual Pub messages: #{published}"
+            console.log "         Actual Sub messages: #{received}"
 
             process.exit 0
 
