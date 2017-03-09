@@ -71,7 +71,7 @@ cogs.api.getClient 'cogs.json'
           ts = now()
           msg.timing.published = ts
           pubTime = msg.timing.published - msg.timing.sent
-          console.log "Message ##{sent} '#{msg.id}' delivered in #{pubTime} ms : #{result}"
+          console.log "Message ##{sent} '#{msg.id}' delivered in #{pubTime} ms : #{JSON.stringify(result)}"
           sendMsg client
         .catch (error) ->
           console.error "Error sending message: #{error}\n#{error.stack}"
